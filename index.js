@@ -7,7 +7,7 @@ const fs   = require('fs');
 const path = require('path');
 const { ethers } = require('ethers');
 
-const { fetchPairByPool, fetchTokenProfiles } = require('./src/dexscreener-api');
+const { fetchPairByPool, fetchPairsByToken, fetchTokenProfiles } = require('./src/dexscreener-api');
 const { executeBuy, buildProvider } = require('./src/trader');
 const { sendTelegram }           = require('./src/telegram');
 const { fetchMarketCap }         = require('./src/market');
@@ -56,7 +56,7 @@ const sleep = (ms) => new Promise(r => setTimeout(r, ms));
  * Clave de deduplicación: la dirección de la pool (v2/v3) o el poolId (v4).
  */
 function poolKey(p) {
-  return (p.pool ?? p.poolId ?? '').toLowerCase();
+  return (p.pool ?? p.poolId ?? p.tokenAddress ?? '').toLowerCase();
 }
 
 /**
@@ -213,8 +213,7 @@ async function main() {
   const fresh = profiles
     .filter(p => p.chainId === 'base')
     .map(p => ({
-      version:     'token-profile',
-      pool:        p.url.split('/').pop(),
+      version:      'token-profile',
       tokenAddress: p.tokenAddress,
       discoveredAt: new Date().toISOString(),
     }));
@@ -256,16 +255,21 @@ async function main() {
     console.log(`\n[pool] ${pool.version.toUpperCase()} | ${key}`);
 
     // 3a. Consultar DexScreener
-    let dexData;
+    let pair;
     try {
-      dexData = await fetchPairByPool(key, config.chain ?? 'base');
+      if (pool.version === 'token-profile') {
+        const data       = await fetchPairsByToken(pool.tokenAddress);
+        const candidates = (data?.pairs ?? []).filter(p => p.chainId === (config.chain ?? 'base'));
+        pair = candidates.find(p => p.dexId === 'uniswap') ?? candidates[0] ?? null;
+      } else {
+        const data = await fetchPairByPool(key, config.chain ?? 'base');
+        pair = data?.pair ?? data?.pairs?.[0] ?? null;
+      }
       await sleep(500); // evitar rate limit de DexScreener
     } catch (err) {
       console.warn(`  [DexScreener] Error: ${err.message} — omitiendo`);
       continue;
     }
-
-    const pair = dexData?.pair ?? dexData?.pairs?.[0] ?? null;
 
     if (!pair) {
       const entry = allDiscovery.find(p => poolKey(p) === key);
