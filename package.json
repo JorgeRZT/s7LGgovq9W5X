@@ -1,0 +1,24 @@
+{
+  "name": "scapper-cron",
+  "version": "1.0.0",
+  "description": "Headless browser scraper with cookie and JS support",
+  "main": "src/scraper.js",
+  "scripts": {
+    "start": "node src/api.js",
+    "cli": "node src/cli.js"
+  },
+  "bin": {
+    "scraper": "src/cli.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "commander": "^15.0.0",
+    "dotenv": "^17.4.2",
+    "ethers": "^6.16.0",
+    "playwright": "^1.60.0",
+    "playwright-extra": "^4.3.6",
+    "puppeteer-extra-plugin-stealth": "^2.11.2"
+  }
+}

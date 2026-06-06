@@ -1,0 +1,11 @@
+.claude/
+.env
+node_modules/
+dex.log
+.DS_Store
+.history
+logs/
+history/
+atomic-test/
+solidity/
+.env.example
