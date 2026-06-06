@@ -46,4 +46,12 @@ function fetchPairsByToken(tokenAddress) {
   return get(`/latest/dex/tokens/${tokenAddress}`);
 }
 
-module.exports = { fetchPairByPool, fetchPairsByToken };
+/**
+ * Devuelve los últimos token profiles de DexScreener (todas las chains).
+ * @returns {Promise<Array>}
+ */
+function fetchTokenProfiles() {
+  return get('/token-profiles/latest/v1');
+}
+
+module.exports = { fetchPairByPool, fetchPairsByToken, fetchTokenProfiles };

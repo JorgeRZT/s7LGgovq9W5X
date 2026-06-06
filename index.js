@@ -7,8 +7,7 @@ const fs   = require('fs');
 const path = require('path');
 const { ethers } = require('ethers');
 
-const { discoverPools }          = require('./src/pooldiscovery');
-const { fetchPairByPool }        = require('./src/dexscreener-api');
+const { fetchPairByPool, fetchTokenProfiles } = require('./src/dexscreener-api');
 const { executeBuy, buildProvider } = require('./src/trader');
 const { sendTelegram }           = require('./src/telegram');
 const { fetchMarketCap }         = require('./src/market');
@@ -67,6 +66,10 @@ function poolKey(p) {
 function nonEthToken(p) {
   const weth   = WETH.toLowerCase();
   const native = NATIVE_ETH.toLowerCase();
+
+  if (p.version === 'token-profile') {
+    return p.tokenAddress;
+  }
 
   if (p.version === 'v4') {
     // En V4, currency0 siempre es ETH nativo (address(0))
@@ -204,12 +207,17 @@ function buildScores(pair) {
 // ── Main ──────────────────────────────────────────────────────────────────────
 
 async function main() {
-  // ── 1. Descubrir pools nuevas via Infura ──────────────────────────────────
+  // ── 1. Descubrir tokens nuevos via DexScreener token profiles (solo Base) ──
 
-  const fresh = await discoverPools({
-    infuraApiKey: process.env.INFURA_API_KEY,
-    blocksBack:   50,
-  });
+  const profiles = await fetchTokenProfiles();
+  const fresh = profiles
+    .filter(p => p.chainId === 'base')
+    .map(p => ({
+      version:     'token-profile',
+      pool:        p.url.split('/').pop(),
+      tokenAddress: p.tokenAddress,
+      discoveredAt: new Date().toISOString(),
+    }));
 
   // ── 2. Append en discovery.json (dedup por pool address / poolId) ─────────
 
