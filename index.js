@@ -189,10 +189,12 @@ async function main() {
 
     // 2a. Consultar DexScreener para obtener el par
     let pair;
+    let pools = 0;
     try {
       const data       = await fetchPairsByToken(profile.tokenAddress);
       const candidates = (data?.pairs ?? []).filter(p => p.chainId === (config.chain ?? 'base'));
       pair = candidates.find(p => p.dexId === 'uniswap') ?? candidates[0] ?? null;
+      pools = candidates.length;
       await sleep(500); // evitar rate limit de DexScreener
     } catch (err) {
       console.warn(`  [DexScreener] Error: ${err.message} — omitiendo`);
@@ -297,6 +299,7 @@ async function main() {
       `<b>Liquidity:</b>  $${((pair.liquidity?.usd ?? 0) / 1000).toFixed(1)}K`,
       `<b>Edad:</b>       ${age}`,
       `<b>Precio:</b>     $${pair.priceUsd ?? '—'}`,
+      `<b>Pools:</b>     ${pools.length}`,
       ``,
       `<b>Cambios:</b>  5m: ${pair.priceChange?.m5 ?? '—'}%  1h: ${pair.priceChange?.h1 ?? '—'}%  6h: ${pair.priceChange?.h6 ?? '—'}%  24h: ${pair.priceChange?.h24 ?? '—'}%`,
       ``,
@@ -307,7 +310,7 @@ async function main() {
       ``,
       buyLine,
       ``,
-      `<a href="${pair.url}">${pair.url}</a>`,
+      `<a href="${pair.url}">Dex Screener</a>`,
       `<a href="https://app.uniswap.org/swap?outputCurrency=${profile.tokenAddress}&inputCurrency=0x4200000000000000000000000000000000000006&chain=base">Swap en Uniswap</a>`,
     ].join('\n');
 
