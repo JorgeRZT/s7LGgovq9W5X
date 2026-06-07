@@ -1,2 +1,6 @@
 */3 * * * * /bin/bash -c 'cd /Users/jorgelopezpellicer/projects/scapper-cron && /usr/local/bin/node wallet-controller.js  >> logs/wallet.log 2>&1'
 * * * * * /bin/bash -c 'cd /Users/jorgelopezpellicer/projects/scapper-cron && /usr/local/bin/node index-v2.js --config st3 >> logs/dex-st3.log 2>&1'
+
+
+* * * * * /bin/bash -c 'cd /root/s7LGgovq9W5X && /usr/local/bin/node index.js --config st3 >> logs/dex-st3.log 2>&1'
+

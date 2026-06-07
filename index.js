@@ -7,7 +7,7 @@ const fs   = require('fs');
 const path = require('path');
 const { ethers } = require('ethers');
 
-const { fetchPairByPool, fetchPairsByToken, fetchTokenProfiles } = require('./src/dexscreener-api');
+const { fetchPairsByToken, fetchTokenProfiles } = require('./src/dexscreener-api');
 const { executeBuy, buildProvider } = require('./src/trader');
 const { sendTelegram }           = require('./src/telegram');
 const { fetchMarketCap }         = require('./src/market');
@@ -21,8 +21,8 @@ const configFlagIdx = process.argv.indexOf('--config');
 const configId      = configFlagIdx !== -1 ? process.argv[configFlagIdx + 1] : null;
 
 if (!configId) {
-  console.error('Uso: node index-v2.js --config <id>');
-  console.error('Ejemplo: node index-v2.js --config st3');
+  console.error('Uso: node index.js --config <id>');
+  console.error('Ejemplo: node index.js --config st3');
   process.exit(1);
 }
 
@@ -41,55 +41,12 @@ const NOTIFY           = config.notify  ?? false;
 const DRY_RUN          = config.dryRun  ?? true;
 const SLIPPAGE_BPS     = config.slippageBps ?? 300;
 const HISTORY_FILE     = path.resolve(__dirname, 'history', config.historyFile);
-const DISCOVERY_FILE   = path.resolve(__dirname, 'discovery.json');
 const TELEGRAM_TOKEN   = process.env.TELEGRAM_BOT_TOKEN;
 const TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID;
 
-const WETH       = '0x4200000000000000000000000000000000000006';
-const NATIVE_ETH = ethers.ZeroAddress; // address(0) = ETH nativo en V4
-
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 
-// ── Pool helpers ──────────────────────────────────────────────────────────────
-
-/**
- * Clave de deduplicación: la dirección de la pool (v2/v3) o el poolId (v4).
- */
-function poolKey(p) {
-  return (p.pool ?? p.poolId ?? p.tokenAddress ?? '').toLowerCase();
-}
-
-/**
- * Devuelve la dirección del token que NO es ETH/WETH en el par,
- * que es el token que hay que comprar.
- */
-function nonEthToken(p) {
-  const weth   = WETH.toLowerCase();
-  const native = NATIVE_ETH.toLowerCase();
-
-  if (p.version === 'token-profile') {
-    return p.tokenAddress;
-  }
-
-  if (p.version === 'v4') {
-    // En V4, currency0 siempre es ETH nativo (address(0))
-    return p.currency1;
-  }
-
-  const t0 = (p.token0 ?? '').toLowerCase();
-  return (t0 === weth || t0 === native) ? p.token1 : p.token0;
-}
-
 // ── Persistencia ──────────────────────────────────────────────────────────────
-
-function loadDiscovery() {
-  if (!fs.existsSync(DISCOVERY_FILE)) return [];
-  try { return JSON.parse(fs.readFileSync(DISCOVERY_FILE, 'utf8')); } catch { return []; }
-}
-
-function saveDiscovery(pools) {
-  fs.writeFileSync(DISCOVERY_FILE, JSON.stringify(pools, null, 2));
-}
 
 function loadHistory() {
   if (!fs.existsSync(HISTORY_FILE)) return { notified: [] };
@@ -160,9 +117,9 @@ function applyFilters(pair, cfg) {
     // txns h24 (buys + sells)
     [cfg.minTxns24h   != null,   txns24h !== null && txns24h >= cfg.minTxns24h,  `minTxns24h ${cfg.minTxns24h}`],
     [cfg.maxTxns24h   != null,   txns24h !== null && txns24h <= cfg.maxTxns24h,  `maxTxns24h ${cfg.maxTxns24h}`],
-    // makers estimados = txns24h / 3
-    [cfg.minMakers    != null,   makers  !== null && makers  >= cfg.minMakers,    `minMakers ${cfg.minMakers} (≈txns/3=${makers})`],
-    [cfg.maxMakers    != null,   makers  !== null && makers  <= cfg.maxMakers,    `maxMakers ${cfg.maxMakers} (≈txns/3=${makers})`],
+    // makers estimados = txns24h / 2
+    [cfg.minMakers    != null,   makers  !== null && makers  >= cfg.minMakers,    `minMakers ${cfg.minMakers} (≈txns/2=${makers})`],
+    [cfg.maxMakers    != null,   makers  !== null && makers  <= cfg.maxMakers,    `maxMakers ${cfg.maxMakers} (≈txns/2=${makers})`],
     // profile: 1 = con imagen, 0 = sin imagen, undefined = sin filtro
     [cfg.profile === 1,  hasImg,  'profile=1 (requiere imageUrl)'],
     [cfg.profile === 0, !hasImg,  'profile=0 (requiere sin imageUrl)'],
@@ -207,64 +164,35 @@ function buildScores(pair) {
 // ── Main ──────────────────────────────────────────────────────────────────────
 
 async function main() {
-  // ── 1. Descubrir tokens nuevos via DexScreener token profiles (solo Base) ──
+  // ── 1. Obtener tokens de Base via DexScreener token profiles ──────────────
 
   const profiles = await fetchTokenProfiles();
-  const fresh = profiles
-    .filter(p => p.chainId === 'base')
-    .map(p => ({
-      version:      'token-profile',
-      tokenAddress: p.tokenAddress,
-      discoveredAt: new Date().toISOString(),
-    }));
+  const tokens   = profiles.filter(p => p.chainId === 'base');
 
-  // ── 2. Append en discovery.json (dedup por pool address / poolId) ─────────
+  console.log(`[profiles] ${profiles.length} total · ${tokens.length} en Base`);
 
-  let existing = loadDiscovery();
-  if (config.maxAge != null) {
-    const maxAgeMs = config.maxAge * 3_600_000;
-    const before   = existing.length;
-    existing = existing.filter(p =>
-      !p.discoveredAt || (Date.now() - new Date(p.discoveredAt).getTime()) <= maxAgeMs,
-    );
-    if (existing.length < before)
-      console.log(`[discovery] Eliminados ${before - existing.length} items con más de ${config.maxAge}h`);
-  }
-  const knownKeys   = new Set(existing.map(poolKey));
-  const newPools    = fresh.filter(p => !knownKeys.has(poolKey(p)));
+  // ── 2. Evaluar cada token ─────────────────────────────────────────────────
 
-  console.log(`[discovery] ${fresh.length} encontradas · ${newPools.length} nuevas · ${existing.length} ya conocidas`);
+  const history   = loadHistory();
+  const knownHist = new Set(history.notified.map(e => e.tokenAddress?.toLowerCase()));
 
-  // allDiscovery es la lista viva que mutaremos durante el loop
-  const allDiscovery = [...existing, ...newPools];
-  saveDiscovery(allDiscovery);
+  for (const profile of tokens) {
+    const tokenAddress = profile.tokenAddress.toLowerCase();
 
-  // ── 3. Para cada pool no descartada: consultar DexScreener y aplicar filtros ──
+    console.log(`\n[token] ${profile.tokenAddress}`);
 
-  const history        = loadHistory();
-  const knownHist      = new Set(history.notified.map(e => e.poolKey));
-  let   discoveryDirty = false; // flag para saber si hay que re-guardar
+    // Saltar si ya fue procesado
+    if (knownHist.has(tokenAddress)) {
+      console.log(`  ✓ Ya procesado — omitiendo`);
+      continue;
+    }
 
-  const poolsToEvaluate = allDiscovery.filter(p => !p.discarded);
-  console.log(`[evaluación] ${poolsToEvaluate.length} pools a evaluar (${allDiscovery.length - poolsToEvaluate.length} descartadas)`);
-
-  for (const pool of poolsToEvaluate) {
-    const key   = poolKey(pool);
-    const token = nonEthToken(pool);
-
-    console.log(`\n[pool] ${pool.version.toUpperCase()} | ${key}`);
-
-    // 3a. Consultar DexScreener
+    // 2a. Consultar DexScreener para obtener el par
     let pair;
     try {
-      if (pool.version === 'token-profile') {
-        const data       = await fetchPairsByToken(pool.tokenAddress);
-        const candidates = (data?.pairs ?? []).filter(p => p.chainId === (config.chain ?? 'base'));
-        pair = candidates.find(p => p.dexId === 'uniswap') ?? candidates[0] ?? null;
-      } else {
-        const data = await fetchPairByPool(key, config.chain ?? 'base');
-        pair = data?.pair ?? data?.pairs?.[0] ?? null;
-      }
+      const data       = await fetchPairsByToken(profile.tokenAddress);
+      const candidates = (data?.pairs ?? []).filter(p => p.chainId === (config.chain ?? 'base'));
+      pair = si .find(p => p.dexId === 'uniswap') ?? candidates[0] ?? null;
       await sleep(500); // evitar rate limit de DexScreener
     } catch (err) {
       console.warn(`  [DexScreener] Error: ${err.message} — omitiendo`);
@@ -272,63 +200,32 @@ async function main() {
     }
 
     if (!pair) {
-      const entry = allDiscovery.find(p => poolKey(p) === key);
-      if (entry) {
-        entry.notIndexedCount = (entry.notIndexedCount ?? 0) + 1;
-        discoveryDirty = true;
-        if (entry.notIndexedCount >= 4) {
-          console.log(`  [DexScreener] Sin datos — pool no indexada ${entry.notIndexedCount}x → marcando discarded`);
-          entry.discarded = true;
-        } else {
-          console.log(`  [DexScreener] Sin datos — pool aún no indexada (intento ${entry.notIndexedCount}/4)`);
-        }
-      }
+      console.log(`  [DexScreener] Sin datos para este token — omitiendo`);
       continue;
     }
 
-    // 3b. Si el dexId no es uniswap, marcar como discarded y saltar
+    // 2b. Si el dexId no es uniswap, saltar
     if (pair.dexId !== 'uniswap') {
-      console.log(`  ✗ dexId="${pair.dexId}" (no es uniswap) — marcando discarded`);
-      const entry = allDiscovery.find(p => poolKey(p) === key);
-      if (entry) { entry.discarded = true; discoveryDirty = true; }
+      console.log(`  ✗ dexId="${pair.dexId}" (no es uniswap) — omitiendo`);
       continue;
     }
 
-    // 3b2. Si el marketCap supera 2x maxMarketCap, marcar como discarded permanentemente
+    // 2c. Si el marketCap supera 2x maxMarketCap, saltar
     if (config.maxMarketCap != null && pair.marketCap != null && pair.marketCap > config.maxMarketCap * 2) {
-      console.log(`  ✗ MarketCap demasiado alto ($${(pair.marketCap / 1000).toFixed(1)}K > 2× maxMarketCap $${(config.maxMarketCap / 1000).toFixed(1)}K) — marcando discarded`);
-      const entry = allDiscovery.find(p => poolKey(p) === key);
-      if (entry) { entry.discarded = true; discoveryDirty = true; }
+      console.log(`  ✗ MarketCap demasiado alto ($${(pair.marketCap / 1000).toFixed(1)}K > 2× maxMarketCap $${(config.maxMarketCap / 1000).toFixed(1)}K) — omitiendo`);
       continue;
     }
 
-    // 3c. Si el par es más antiguo que cfg.maxAge, eliminar de discovery y saltar
-    if (config.maxAge != null && pair.pairCreatedAt != null) {
-      const ageH = (Date.now() - pair.pairCreatedAt) / 3_600_000;
-      if (ageH > config.maxAge) {
-        console.log(`  ✗ Par demasiado antiguo (${ageH.toFixed(1)}h > maxAge ${config.maxAge}h) — eliminando de discovery`);
-        const idx = allDiscovery.findIndex(p => poolKey(p) === key);
-        if (idx !== -1) { allDiscovery.splice(idx, 1); discoveryDirty = true; }
-        continue;
-      }
-    }
-
-    // 3d. Aplicar filtros del config
+    // 2d. Aplicar filtros del config
     const { pass, reason } = applyFilters(pair, config);
     if (!pass) {
       console.log(`  ✗ Descartada por: ${reason}`);
       continue;
     }
 
-    // 3c. Comprobar si ya fue procesada en esta estrategia
-    if (knownHist.has(key)) {
-      console.log(`  ✓ Pasa filtros pero ya fue procesada — omitiendo`);
-      continue;
-    }
-
     console.log(`  ✓ PASA todos los filtros → ${pair.baseToken?.symbol} / ${pair.quoteToken?.symbol}`);
 
-    // ── 4a. Compra on-chain ────────────────────────────────────────────────
+    // ── 3a. Compra on-chain ────────────────────────────────────────────────
 
     const { provider: _prov } = buildProvider();
     const contractBalanceWei  = await _prov.getBalance(process.env.CONTRACT_ADDRESS);
@@ -343,7 +240,7 @@ async function main() {
       try {
         const buyResult = await executeBuy({
           chain:        config.chain ?? 'base',
-          tokenAddress: token,
+          tokenAddress: profile.tokenAddress,
           ethPerTrade:  ethPerTradeDynamic,
           slippageBps:  SLIPPAGE_BPS,
         });
@@ -383,7 +280,7 @@ async function main() {
       }
     }
 
-    // ── 4b. Notificar por Telegram ─────────────────────────────────────────
+    // ── 3b. Notificar por Telegram ─────────────────────────────────────────
 
     const s   = buildScores(pair);
     const age = pair.pairCreatedAt
@@ -411,6 +308,7 @@ async function main() {
       buyLine,
       ``,
       `<a href="${pair.url}">${pair.url}</a>`,
+      `<a href="https://app.uniswap.org/swap?outputCurrency=${profile.tokenAddress}&inputCurrency=0x4200000000000000000000000000000000000006&chain=base">Swap en Uniswap</a>`,
     ].join('\n');
 
     try {
@@ -419,30 +317,23 @@ async function main() {
       console.error(`  [Telegram] Error:`, err.message);
     }
 
-    // ── 4c. Guardar en history ─────────────────────────────────────────────
+    // ── 3c. Guardar en history ─────────────────────────────────────────────
 
     history.notified.push({
-      poolKey:    key,
-      version:    pool.version,
-      token:      pair.baseToken?.address ?? token,
-      symbol:     pair.baseToken?.symbol  ?? '?',
-      notifiedAt: new Date().toISOString(),
-      dryRun:     DRY_RUN,
-      buyOk:      DRY_RUN ? null : buyOk,
+      tokenAddress: profile.tokenAddress,
+      symbol:       pair.baseToken?.symbol  ?? '?',
+      notifiedAt:   new Date().toISOString(),
+      dryRun:       DRY_RUN,
+      buyOk:        DRY_RUN ? null : buyOk,
     });
 
-    knownHist.add(key);
+    knownHist.add(tokenAddress);
   }
 
-  // ── 5. Persistir history y discovery (si hubo mutaciones) ───────────────
+  // ── 4. Persistir history ──────────────────────────────────────────────────
 
   saveHistory(history);
   console.log(`\nHistory guardado: ${history.notified.length} entradas.`);
-
-  if (discoveryDirty) {
-    saveDiscovery(allDiscovery);
-    console.log(`Discovery actualizado: ${allDiscovery.length} entradas.`);
-  }
 }
 
 main().catch(err => {
