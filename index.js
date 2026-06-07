@@ -192,7 +192,7 @@ async function main() {
     try {
       const data       = await fetchPairsByToken(profile.tokenAddress);
       const candidates = (data?.pairs ?? []).filter(p => p.chainId === (config.chain ?? 'base'));
-      pair = si .find(p => p.dexId === 'uniswap') ?? candidates[0] ?? null;
+      pair = candidates.find(p => p.dexId === 'uniswap') ?? candidates[0] ?? null;
       await sleep(500); // evitar rate limit de DexScreener
     } catch (err) {
       console.warn(`  [DexScreener] Error: ${err.message} — omitiendo`);
