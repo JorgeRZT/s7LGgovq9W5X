@@ -164,6 +164,8 @@ function buildScores(pair) {
 // ── Main ──────────────────────────────────────────────────────────────────────
 
 async function main() {
+  let pools = 0;
+
   // ── 1. Obtener tokens de Base via DexScreener token profiles ──────────────
 
   const profiles = await fetchTokenProfiles();
@@ -189,12 +191,11 @@ async function main() {
 
     // 2a. Consultar DexScreener para obtener el par
     let pair;
-    let pools = 0;
     try {
       const data       = await fetchPairsByToken(profile.tokenAddress);
       const candidates = (data?.pairs ?? []).filter(p => p.chainId === (config.chain ?? 'base'));
       pair = candidates.find(p => p.dexId === 'uniswap') ?? candidates[0] ?? null;
-      pools = pair ? pair.length : 0;
+      pools = candidates.find(p => p.dexId === 'uniswap') ? candidates.filter(p => p.dexId === 'uniswap').length : 0;
       await sleep(500); // evitar rate limit de DexScreener
     } catch (err) {
       console.warn(`  [DexScreener] Error: ${err.message} — omitiendo`);
