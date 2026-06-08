@@ -300,7 +300,7 @@ async function main() {
       `<b>Liquidity:</b>  $${((pair.liquidity?.usd ?? 0) / 1000).toFixed(1)}K`,
       `<b>Edad:</b>       ${age}`,
       `<b>Precio:</b>     $${pair.priceUsd ?? '—'}`,
-      `<b>Pools:</b>     ${pools.length}`,
+      `<b>Pools:</b>     ${pools}`,
       ``,
       `<b>Cambios:</b>  5m: ${pair.priceChange?.m5 ?? '—'}%  1h: ${pair.priceChange?.h1 ?? '—'}%  6h: ${pair.priceChange?.h6 ?? '—'}%  24h: ${pair.priceChange?.h24 ?? '—'}%`,
       ``,
