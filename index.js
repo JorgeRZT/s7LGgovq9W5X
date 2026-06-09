@@ -8,7 +8,10 @@ const path = require('path');
 const { ethers } = require('ethers');
 
 const { fetchPairsByToken, fetchTokenProfiles } = require('./src/dexscreener-api');
-const { executeBuy, buildProvider } = require('./src/trader');
+const { buildProvider } = require('./src/trader');
+const { buyV2 }        = require('./src/uniswap/v2');
+const { buyV3 }        = require('./src/uniswap/v3');
+const { buyV4 }        = require('./src/uniswap/v4');
 const { sendTelegram }           = require('./src/telegram');
 const { fetchMarketCap }         = require('./src/market');
 const { loadWallet, saveWallet } = require('./src/wallet');
@@ -161,6 +164,40 @@ function buildScores(pair) {
   };
 }
 
+// ── Router de versión ─────────────────────────────────────────────────────────
+
+/**
+ * Detecta la versión de Uniswap a partir del campo labels del par de DexScreener
+ * y ejecuta la compra con el script correspondiente.
+ *
+ * @param {string[]} labels        pair.labels, e.g. ["v4"]
+ * @param {string}   tokenAddress  Dirección del token
+ * @param {number}   amountInEth   ETH a gastar
+ * @param {number}   slippageBps   Slippage en basis points
+ *
+ * @returns {Promise<{ tokenAddress: string, txHash: string, ethSpent: string }>}
+ */
+async function executeBuyByVersion(labels, tokenAddress, amountInEth, slippageBps) {
+  const version = (labels ?? []).map(l => l.toLowerCase()).find(l => ['v2', 'v3', 'v4'].includes(l));
+
+  if (!version) {
+    throw new Error(`Versión de Uniswap no reconocida en labels: ${JSON.stringify(labels)}`);
+  }
+
+  const opts = { tokenAddress, amountInEth, slippageBps };
+
+  const r = version === 'v2' ? await buyV2(opts)
+          : version === 'v3' ? await buyV3(opts)
+          :                    await buyV4(opts);
+
+  return {
+    tokenAddress: r.tokenAddress,
+    txHash:       r.txHash,
+    ethSpent:     ethers.formatEther(r.amountIn),
+    version,
+  };
+}
+
 // ── Main ──────────────────────────────────────────────────────────────────────
 
 async function main() {
@@ -235,18 +272,20 @@ async function main() {
     const ethPerTradeWei      = contractBalanceWei * 33n / 100n;
     const ethPerTradeDynamic  = Number(ethers.formatEther(ethPerTradeWei));
 
-    let buyLine = `  [DRY RUN — compra simulada: ${ethPerTradeDynamic.toFixed(6)} ETH (33% balance)]`;
+    const dryVersion = (pair.labels ?? []).find(l => ['v2', 'v3', 'v4'].includes(l.toLowerCase()))?.toUpperCase() ?? '?';
+    let buyLine = `  [DRY RUN — compra simulada: ${ethPerTradeDynamic.toFixed(6)} ETH (33% balance) via Uniswap ${dryVersion}]`;
     let buyOk   = true;
 
     if (!DRY_RUN) {
-      console.log(`  → Comprando ${ethPerTradeDynamic.toFixed(6)} ETH de ${pair.baseToken?.symbol}...`);
+      const versionLabel = (pair.labels ?? []).find(l => ['v2', 'v3', 'v4'].includes(l.toLowerCase())) ?? '?';
+      console.log(`  → Comprando ${ethPerTradeDynamic.toFixed(6)} ETH de ${pair.baseToken?.symbol} via Uniswap ${versionLabel.toUpperCase()}...`);
       try {
-        const buyResult = await executeBuy({
-          chain:        config.chain ?? 'base',
-          tokenAddress: profile.tokenAddress,
-          ethPerTrade:  ethPerTradeDynamic,
-          slippageBps:  SLIPPAGE_BPS,
-        });
+        const buyResult = await executeBuyByVersion(
+          pair.labels,
+          profile.tokenAddress,
+          ethPerTradeDynamic,
+          SLIPPAGE_BPS,
+        );
 
         let marketCapEntry = null;
         try {
@@ -290,6 +329,14 @@ async function main() {
       ? `${((Date.now() - pair.pairCreatedAt) / 3_600_000).toFixed(1)}h`
       : '—';
 
+    const buys24h  = pair.txns?.h24?.buys  ?? null;
+    const sells24h = pair.txns?.h24?.sells ?? null;
+    const buysSellsRatio = (buys24h !== null && sells24h !== null && sells24h > 0)
+      ? (buys24h / sells24h).toFixed(2)
+      : null;
+    const txns24hLine = `<b>Txns 24h:</b>  🟢 ${buys24h ?? '—'} buys  🔴 ${sells24h ?? '—'} sells`
+      + (buysSellsRatio !== null ? `  (ratio ${buysSellsRatio})` : '');
+
     const msg = [
       `🚨 <b>Nueva pool detectada — ${STRATEGY_NAME}</b>`,
       ``,
@@ -301,6 +348,8 @@ async function main() {
       `<b>Edad:</b>       ${age}`,
       `<b>Precio:</b>     $${pair.priceUsd ?? '—'}`,
       `<b>Pools:</b>     ${pools}`,
+      `<b>Versión:</b>   ${(pair.labels ?? []).map(l => l.toUpperCase()).join(', ') || '—'}`,
+      txns24hLine,
       ``,
       `<b>Cambios:</b>  5m: ${pair.priceChange?.m5 ?? '—'}%  1h: ${pair.priceChange?.h1 ?? '—'}%  6h: ${pair.priceChange?.h6 ?? '—'}%  24h: ${pair.priceChange?.h24 ?? '—'}%`,
       ``,
