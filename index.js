@@ -267,16 +267,16 @@ async function main() {
 
     // ── 3a. Compra on-chain ────────────────────────────────────────────────
 
-    const { provider: _prov } = buildProvider();
-    const contractBalanceWei  = await _prov.getBalance(process.env.CONTRACT_ADDRESS);
-    const ethPerTradeWei      = contractBalanceWei * 33n / 100n;
-    const ethPerTradeDynamic  = Number(ethers.formatEther(ethPerTradeWei));
-
     const dryVersion = (pair.labels ?? []).find(l => ['v2', 'v3', 'v4'].includes(l.toLowerCase()))?.toUpperCase() ?? '?';
-    let buyLine = `  [DRY RUN — compra simulada: ${ethPerTradeDynamic.toFixed(6)} ETH (33% balance) via Uniswap ${dryVersion}]`;
+    let buyLine = `  [DRY RUN — compra simulada: ${(config.ethPerTrade ?? 0).toFixed(6)} ETH via Uniswap ${dryVersion}]`;
     let buyOk   = true;
 
     if (!DRY_RUN) {
+      const { provider: _prov } = buildProvider();
+      const contractBalanceWei  = await _prov.getBalance(process.env.CONTRACT_ADDRESS);
+      const ethPerTradeWei      = contractBalanceWei * 33n / 100n;
+      const ethPerTradeDynamic  = Number(ethers.formatEther(ethPerTradeWei));
+
       const versionLabel = (pair.labels ?? []).find(l => ['v2', 'v3', 'v4'].includes(l.toLowerCase())) ?? '?';
       console.log(`  → Comprando ${ethPerTradeDynamic.toFixed(6)} ETH de ${pair.baseToken?.symbol} via Uniswap ${versionLabel.toUpperCase()}...`);
       try {
