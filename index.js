@@ -272,11 +272,13 @@ async function main() {
     let buyOk   = true;
 
     if (!DRY_RUN) {
-      const { provider: _prov } = buildProvider();
+      
+      /*const { provider: _prov } = buildProvider();
       const contractBalanceWei  = await _prov.getBalance(process.env.CONTRACT_ADDRESS);
       const ethPerTradeWei      = contractBalanceWei * 33n / 100n;
-      const ethPerTradeDynamic  = Number(ethers.formatEther(ethPerTradeWei));
+      const ethPerTradeDynamic  = Number(ethers.formatEther(ethPerTradeWei));*/
 
+      const ethPerTradeDynamic  = 0.00006;                                                                                                                                                                      
       const versionLabel = (pair.labels ?? []).find(l => ['v2', 'v3', 'v4'].includes(l.toLowerCase())) ?? '?';
       console.log(`  → Comprando ${ethPerTradeDynamic.toFixed(6)} ETH de ${pair.baseToken?.symbol} via Uniswap ${versionLabel.toUpperCase()}...`);
       try {

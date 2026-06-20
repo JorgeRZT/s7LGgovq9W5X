@@ -1,5 +1,5 @@
 {
-    "name": "ST3 - With profile",
+    "name": "BASE",
     "historyFile": "history-profile.json",
     "chain": "base",
     "rankBy": "trendingScoreH6",
@@ -14,7 +14,7 @@
     "min1HChg": -30,
     "min5MChg": -30,
     "profile": 1,
-    "dryRun": true,
+    "dryRun": false,
     "ethPerTrade": 0.05,                                                                                                                                                                                           
     "slippageBps": 200,
     "notify": true
