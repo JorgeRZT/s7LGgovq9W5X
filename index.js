@@ -321,6 +321,11 @@ async function main() {
         buyOk   = false;
         buyLine = `❌ Compra fallida: ${err.message}`;
         console.error(`  → Compra FALLIDA:`, err.message);
+        try {
+          await notify(`❌ <b>Error en compra</b>\nToken: <code>${profile.tokenAddress}</code>\nSímbolo: <b>${pair.baseToken?.symbol ?? '?'}</b>\nError: <code>${err.message}</code>`);
+        } catch (notifyErr) {
+          console.error(`  [Telegram] Error notificando fallo de compra:`, notifyErr.message);
+        }
       }
     }
 
