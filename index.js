@@ -319,10 +319,35 @@ async function main() {
         console.log(`  → Compra OK — tx: ${buyResult.txHash}`);
       } catch (err) {
         buyOk   = false;
-        buyLine = `❌ Compra fallida: ${err.message}`;
-        console.error(`  → Compra FALLIDA:`, err.message);
+        const txHash    = err.transactionHash ?? err.receipt?.hash ?? err.transaction?.hash ?? null;
+        const errCode   = err.code   != null ? String(err.code)   : null;
+        const errReason = err.reason != null ? String(err.reason) : null;
+        const errData   = err.data   != null ? String(err.data)   : null;
+
+        buyLine = `❌ Compra fallida: ${err.message}${txHash ? ` | tx: ${txHash}` : ''}`;
+
+        console.error(`  → Compra FALLIDA`);
+        console.error(`     Mensaje : ${err.message}`);
+        if (txHash)    console.error(`     Tx Hash : ${txHash}`);
+        if (errCode)   console.error(`     Código  : ${errCode}`);
+        if (errReason) console.error(`     Razón   : ${errReason}`);
+        if (errData)   console.error(`     Data    : ${errData}`);
+        console.error(`     Stack   :`, err.stack ?? '(sin stack)');
+
         try {
-          await notify(`❌ <b>Error en compra</b>\nToken: <code>${profile.tokenAddress}</code>\nSímbolo: <b>${pair.baseToken?.symbol ?? '?'}</b>\nError: <code>${err.message}</code>`);
+          const lines = [
+            `❌ <b>Error en compra</b>`,
+            ``,
+            `<b>Token:</b>   <code>${profile.tokenAddress}</code>`,
+            `<b>Símbolo:</b> <b>${pair.baseToken?.symbol ?? '?'}</b>`,
+            ``,
+            `<b>Error:</b>   <code>${err.message}</code>`,
+          ];
+          if (txHash)    lines.push(`<b>Tx Hash:</b> <code>${txHash}</code>`);
+          if (errCode)   lines.push(`<b>Código:</b>  <code>${errCode}</code>`);
+          if (errReason) lines.push(`<b>Razón:</b>   <code>${errReason}</code>`);
+          if (errData)   lines.push(`<b>Data:</b>    <code>${errData}</code>`);
+          await notify(lines.join('\n'));
         } catch (notifyErr) {
           console.error(`  [Telegram] Error notificando fallo de compra:`, notifyErr.message);
         }
