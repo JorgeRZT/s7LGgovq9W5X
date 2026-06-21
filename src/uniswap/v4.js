@@ -192,22 +192,7 @@ async function buyV4({ tokenAddress, amountInEth, slippageBps, poolAddress }) {
     );
   }
 
-  // 2. Descubrir mejor pool V4 y obtener quote (ETH → token)
-  const best         = await findBestPool(tokenAddress, amountIn, true, provider);
-  const amountOutMin = best.amountOut * BigInt(10_000 - slippageBps) / 10_000n;
-  const ethLabel     = best.ethVariant === NATIVE_ETH ? 'ETH nativo' : 'WETH';
-
-  console.log(
-    `[v4:buy] Pool: fee=${best.fee} tickSpacing=${best.tickSpacing} via ${ethLabel}`,
-  );
-  console.log(
-    `[v4:buy] Quote: ${ethers.formatEther(amountIn)} ETH → ~${best.amountOut.toString()} tokens`,
-  );
-  console.log(
-    `[v4:buy] Min aceptable (${slippageBps} bps): ${amountOutMin.toString()} tokens`,
-  );
-
-  // 3. Ejecutar compra via contrato
+  // 2. Ejecutar compra via contrato
   if (!poolAddress) throw new Error('buyV4: poolAddress es requerido (pair.pairAddress de DexScreener)');
   const tx      = await contract.buyToken(amountIn, ethers.getAddress(tokenAddress), BigInt(slippageBps), ethers.getAddress(poolAddress));
   const receipt = await tx.wait();
