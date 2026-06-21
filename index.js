@@ -177,7 +177,7 @@ function buildScores(pair) {
  *
  * @returns {Promise<{ tokenAddress: string, txHash: string, ethSpent: string }>}
  */
-async function executeBuyByVersion(labels, tokenAddress, amountInEth, slippageBps) {
+async function executeBuyByVersion(labels, tokenAddress, amountInEth, slippageBps, poolAddress) {
   const version = (labels ?? []).map(l => l.toLowerCase()).find(l => ['v2', 'v3', 'v4'].includes(l));
 
   if (!version) {
@@ -188,7 +188,7 @@ async function executeBuyByVersion(labels, tokenAddress, amountInEth, slippageBp
 
   const r = version === 'v2' ? await buyV2(opts)
           : version === 'v3' ? await buyV3(opts)
-          :                    await buyV4(opts);
+          :                    await buyV4({ ...opts, poolAddress });
 
   return {
     tokenAddress: r.tokenAddress,
@@ -287,6 +287,7 @@ async function main() {
           profile.tokenAddress,
           ethPerTradeDynamic,
           SLIPPAGE_BPS,
+          pair.pairAddress,
         );
 
         let marketCapEntry = null;

@@ -31,7 +31,7 @@ const V4_QUOTER_ABI = [
 ];
 
 const TRADER_ABI = [
-  'function buyToken(uint256 ethAmount, address token, uint256 slippageBps) external',
+  'function buyToken(uint256 ethAmount, address token, uint256 slippageBps, address pool) external',
   'function sellToken(address token, uint256 sellBps, uint256 slippageBps) external',
 ];
 
@@ -178,7 +178,7 @@ async function findBestPool(tokenAddress, exactAmount, isBuy, provider) {
  *   poolFee:      number,
  * }>}
  */
-async function buyV4({ tokenAddress, amountInEth, slippageBps }) {
+async function buyV4({ tokenAddress, amountInEth, slippageBps, poolAddress }) {
   const { provider, contract } = buildProvider();
 
   const amountIn = ethers.parseEther(amountInEth.toString());
@@ -208,7 +208,8 @@ async function buyV4({ tokenAddress, amountInEth, slippageBps }) {
   );
 
   // 3. Ejecutar compra via contrato
-  const tx      = await contract.buyToken(amountIn, ethers.getAddress(tokenAddress), BigInt(slippageBps));
+  if (!poolAddress) throw new Error('buyV4: poolAddress es requerido (pair.pairAddress de DexScreener)');
+  const tx      = await contract.buyToken(amountIn, ethers.getAddress(tokenAddress), BigInt(slippageBps), ethers.getAddress(poolAddress));
   const receipt = await tx.wait();
 
   return {
